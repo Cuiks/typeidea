@@ -123,3 +123,7 @@ class Post(models.Model):
     def latest_posts(cls):
         queryset = cls.objects.filter(status=Post.STATUS_NORMAL)
         return queryset
+
+    @classmethod
+    def hot_posts(cls):
+        return cls.objects.filter(status=cls.STATUS_NORMAL).order_by("-pv")
