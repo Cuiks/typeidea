@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.shortcuts import render
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -5,6 +6,8 @@ from django.views.generic import ListView, DetailView
 
 from config.models import SideBar
 from .models import Tag, Post, Category
+from comment.forms import CommentForm
+from comment.models import Comment
 
 
 def post_list(request, category_id=None, tag_id=None):
@@ -42,7 +45,7 @@ def post_detail(request, post_id=None):
     return render(request, 'blog/detail.html', context=context)
 
 
-class CommentViewMixin:
+class CommonViewMixin:
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.update({
@@ -52,18 +55,26 @@ class CommentViewMixin:
         return context
 
 
-class IndexView(CommentViewMixin, ListView):
+class IndexView(CommonViewMixin, ListView):
     queryset = Post.latest_posts()  # 跟model一样 二选一。model没有过滤
     paginate_by = 5  # 分页  每页数量
     context_object_name = "post_list"  # 如果不指定该字段，在模板中使用object_list获取变量
     template_name = "blog/list.html"
 
 
-class PostDetailView(CommentViewMixin, DetailView):
+class PostDetailView(CommonViewMixin, DetailView):
     queryset = Post.latest_posts()
     template_name = "blog/detail.html"
     context_object_name = "post"
-    pk_url_kwarg = "post_id"
+    pk_url_kwarg = "post_id"  # 路由地址中字段名
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({
+            "comment_form": CommentForm,
+            "comment_list": Comment.get_by_target(self.request.path)
+        })
+        return context
 
 
 class CategoryView(IndexView):
@@ -90,7 +101,7 @@ class TagView(IndexView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         tag_id = self.kwargs.get('tag_id')
-        tag = get_object_or_404(Category, pk=tag_id)
+        tag = get_object_or_404(Tag, pk=tag_id)
         context.update({
             'tag': tag
         })
@@ -103,4 +114,27 @@ class TagView(IndexView):
         """
         queryset = super().get_queryset()
         tag_id = self.kwargs.get('tag_id')
-        return queryset.filter(tag_id=tag_id)
+        return queryset.filter(tag__id=tag_id)
+
+
+class SearchView(IndexView):
+    def get_context_data(self):
+        context = super().get_context_data()
+        context.update({
+            'keyword': self.request.GET.get("keyword", "")
+        })
+        return context
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        keyword = self.request.GET.get("keyword")
+        if not keyword:
+            return queryset
+        return queryset.filter(Q(title__icontains=keyword) | Q(desc__icontains=keyword))
+
+
+class AuthorView(IndexView):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        author_id = self.kwargs.get("owner_id")
+        return queryset.filter(owner_id=author_id)
